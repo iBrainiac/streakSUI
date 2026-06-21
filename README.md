@@ -1,14 +1,14 @@
 # StreakSui
 
-A mobile-first Progressive Web App where you make a daily BTC Up/Down prediction that resolves as a real on-chain position via DeepBook Predict on Sui testnet. Correct calls build your streak. Top streaks hit the leaderboard.
+A mobile-first Progressive Web App where you make a daily BTC Up/Down prediction that resolves as a real onchain position via DeepBook Predict on Sui testnet. Correct calls build your streak. Top streaks hit the leaderboard.
 
-Built for **Sui Overflow 2026 — DeepBook Predict Track**.
+Built for **Sui DeepBook Communityy**.
 
 ---
 
 ## What it does
 
-Every pick is a live `predict::mint` transaction on Sui testnet. No fake points, no simulated results — real DeFi under a game layer.
+Every pick is a live `predict::mint` transaction on Sui testnet. No fake points, no simulated results just real DeFi under a game layer.
 
 The full flow:
 
@@ -102,10 +102,3 @@ Open `http://localhost:5173`, connect a Sui testnet wallet, and request dUSDC fr
 
 ---
 
-## Roadmap
-
-**Phase 1 (current)** — Core pick flow, streak tracking, countdown, faucet onboarding, auto-redeem
-
-**Phase 2** — Live leaderboard with streak-at-risk warnings, badge system, Streak Shield (range position as weekly insurance)
-
-**Phase 3** — Shareable streak card for X/Twitter, season stats profile, PWA install manifest

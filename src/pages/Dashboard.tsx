@@ -163,33 +163,36 @@ export function Dashboard() {
         </button>
 
         {account && (
-          <div className="flex justify-between text-xs text-gray-600 px-1">
-            <span>
+          <div className="flex flex-col gap-3">
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                onClick={() => setShowShare(true)}
+                className="flex flex-col items-center gap-1.5 rounded-2xl bg-zinc-900 border border-white/5 py-4 hover:border-[#4da2ff]/30 hover:bg-[#4da2ff]/5 transition-all active:scale-95"
+              >
+                <span className="text-xl">🔗</span>
+                <span className="text-xs font-semibold text-gray-300">Share</span>
+              </button>
+              <button
+                onClick={() => navigate('/profile')}
+                className="flex flex-col items-center gap-1.5 rounded-2xl bg-zinc-900 border border-white/5 py-4 hover:border-[#4da2ff]/30 hover:bg-[#4da2ff]/5 transition-all active:scale-95"
+              >
+                <span className="text-xl">👤</span>
+                <span className="text-xs font-semibold text-gray-300">Profile</span>
+              </button>
+              <button
+                onClick={() => navigate('/leaderboard')}
+                className="flex flex-col items-center gap-1.5 rounded-2xl bg-zinc-900 border border-white/5 py-4 hover:border-[#4da2ff]/30 hover:bg-[#4da2ff]/5 transition-all active:scale-95"
+              >
+                <span className="text-xl">🏆</span>
+                <span className="text-xs font-semibold text-gray-300">Leaderboard</span>
+              </button>
+            </div>
+            <p className="text-xs text-gray-600 text-center">
               Balance:{' '}
               {balance
                 ? `${(Number(balance.total) / 1_000_000).toFixed(2)} dUSDC`
                 : '...'}
-            </span>
-            <div className="flex gap-4">
-              <button
-                onClick={() => setShowShare(true)}
-                className="text-gray-500 hover:text-[#4da2ff] transition-colors"
-              >
-                Share
-              </button>
-              <button
-                onClick={() => navigate('/profile')}
-                className="text-gray-500 hover:text-[#4da2ff] transition-colors"
-              >
-                Profile
-              </button>
-              <button
-                onClick={() => navigate('/leaderboard')}
-                className="text-gray-500 hover:text-[#4da2ff] transition-colors"
-              >
-                Leaderboard →
-              </button>
-            </div>
+            </p>
           </div>
         )}
       </main>

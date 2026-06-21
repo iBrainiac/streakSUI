@@ -1,91 +1,143 @@
 import { Transaction } from '@mysten/sui/transactions'
-import { PREDICT_PACKAGE, BTC_ORACLE_ID } from './config'
+import {
+  PREDICT_PACKAGE,
+  PREDICT_SHARED_OBJECT_ID,
+  DUSDC_TYPE,
+  CLOCK_ID,
+} from './config'
 
-type MintParams = {
+// Verified against predict module on testnet:
+//   predict::mint(&mut Predict, &mut PredictManager, &OracleSVI, MarketKey, U64, &Clock, ctx)
+//   predict::redeem_permissionless(&mut Predict, &mut PredictManager, &OracleSVI, MarketKey, U64, &Clock, ctx)
+//   predict::create_manager(ctx) -> ID
+//   predict_manager::deposit<T>(&mut PredictManager, Coin<T>)
+//   predict_manager::withdraw<T>(&mut PredictManager, U64, ctx) -> Coin<T>
+//   market_key::up(oracle_id: ID, expiry: U64, strike: U64) -> MarketKey
+//   market_key::down(oracle_id: ID, expiry: U64, strike: U64) -> MarketKey
+
+export type MintParams = {
   managerObjectId: string
-  oracleObjectId?: string
-  isAbove: boolean
-  strike: bigint
+  oracleObjectId: string
+  direction: 'UP' | 'DOWN'
+  expiry: number
+  atmStrike: number
   dusdcCoinObjectId: string
   amount: bigint
   senderAddress: string
 }
 
-type RedeemParams = {
+export type RedeemParams = {
   managerObjectId: string
   oracleObjectId: string
-  positionObjectId: string
+  direction: 'UP' | 'DOWN'
+  expiry: number
+  strike: number
+  amount: bigint
   senderAddress: string
 }
 
-type CreateManagerParams = {
-  senderAddress: string
+function buildMarketKey(
+  tx: Transaction,
+  direction: 'UP' | 'DOWN',
+  oracleId: string,
+  expiry: number,
+  strike: number,
+) {
+  const fn = direction === 'UP' ? 'up' : 'down'
+  return tx.moveCall({
+    target: `${PREDICT_PACKAGE}::market_key::${fn}`,
+    arguments: [
+      tx.pure.address(oracleId),
+      tx.pure.u64(expiry),
+      tx.pure.u64(strike),
+    ],
+  })
 }
 
-// Builds a transaction that opens a binary prediction position.
-// If predict::mint returns a Position object, it is transferred to the sender.
-// TODO: verify the Move function signature matches predict-testnet-4-16.
+// Builds the PTB that deposits dUSDC into the manager then opens a binary position.
 export function buildMintTx(params: MintParams): Transaction {
   const tx = new Transaction()
-
-  const oracleId = params.oracleObjectId ?? BTC_ORACLE_ID
 
   const [payment] = tx.splitCoins(tx.object(params.dusdcCoinObjectId), [
     tx.pure.u64(params.amount),
   ])
 
-  const callResult = tx.moveCall({
-    target: `${PREDICT_PACKAGE}::predict::mint`,
-    arguments: [
-      tx.object(params.managerObjectId),
-      tx.object(oracleId),
-      tx.pure.bool(params.isAbove),
-      tx.pure.u64(params.strike),
-      payment,
-    ],
+  tx.moveCall({
+    target: `${PREDICT_PACKAGE}::predict_manager::deposit`,
+    typeArguments: [DUSDC_TYPE],
+    arguments: [tx.object(params.managerObjectId), payment],
   })
 
-  // predict::mint likely returns a Position object — transfer it to the user.
-  // If the function is entry (void return), remove this line.
-  if (callResult) {
-    tx.transferObjects([callResult], tx.pure.address(params.senderAddress))
-  }
+  const marketKey = buildMarketKey(
+    tx,
+    params.direction,
+    params.oracleObjectId,
+    params.expiry,
+    params.atmStrike,
+  )
+
+  tx.moveCall({
+    target: `${PREDICT_PACKAGE}::predict::mint`,
+    typeArguments: [DUSDC_TYPE],
+    arguments: [
+      tx.object(PREDICT_SHARED_OBJECT_ID),
+      tx.object(params.managerObjectId),
+      tx.object(params.oracleObjectId),
+      marketKey,
+      tx.pure.u64(params.amount),
+      tx.object(CLOCK_ID),
+    ],
+  })
 
   return tx
 }
 
-// Builds a transaction to redeem a settled position on behalf of its owner.
+// Builds the PTB that redeems a settled position and withdraws proceeds to the user's wallet.
 export function buildRedeemTx(params: RedeemParams): Transaction {
   const tx = new Transaction()
 
-  const callResult = tx.moveCall({
+  const marketKey = buildMarketKey(
+    tx,
+    params.direction,
+    params.oracleObjectId,
+    params.expiry,
+    params.strike,
+  )
+
+  tx.moveCall({
     target: `${PREDICT_PACKAGE}::predict::redeem_permissionless`,
+    typeArguments: [DUSDC_TYPE],
     arguments: [
+      tx.object(PREDICT_SHARED_OBJECT_ID),
       tx.object(params.managerObjectId),
       tx.object(params.oracleObjectId),
-      tx.object(params.positionObjectId),
+      marketKey,
+      tx.pure.u64(params.amount),
+      tx.object(CLOCK_ID),
     ],
   })
 
-  // redeem_permissionless likely returns a Coin<DUSDC> payout — transfer to owner.
-  if (callResult) {
-    tx.transferObjects([callResult], tx.pure.address(params.senderAddress))
-  }
+  const [payout] = tx.moveCall({
+    target: `${PREDICT_PACKAGE}::predict_manager::withdraw`,
+    typeArguments: [DUSDC_TYPE],
+    arguments: [
+      tx.object(params.managerObjectId),
+      tx.pure.u64(params.amount),
+    ],
+  })
+
+  tx.transferObjects([payout], tx.pure.address(params.senderAddress))
 
   return tx
 }
 
-// Builds a transaction that creates a new PredictManager for the user.
-// TODO: verify the create manager function name and signature.
-export function buildCreateManagerTx(params: CreateManagerParams): Transaction {
+// Creates a PredictManager. The object is transferred to the sender automatically.
+// Query listOwnedObjects after this tx to get the manager's objectId.
+export function buildCreateManagerTx(): Transaction {
   const tx = new Transaction()
-
-  const manager = tx.moveCall({
-    target: `${PREDICT_PACKAGE}::predict::create_manager`,
+  tx.moveCall({
+    target: `${PREDICT_PACKAGE}::predict_manager::new`,
     arguments: [],
   })
-
-  tx.transferObjects([manager], tx.pure.address(params.senderAddress))
-
   return tx
 }

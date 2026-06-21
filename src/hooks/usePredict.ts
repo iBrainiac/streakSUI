@@ -2,10 +2,8 @@ import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useCurrentAccount, useCurrentClient, useDAppKit } from '@mysten/dapp-kit-react'
 import { buildMintTx, buildRedeemTx, buildCreateManagerTx } from '../lib/predict'
-import { PREDICT_PACKAGE } from '../lib/config'
+import { PREDICT_MANAGER_TYPE } from '../lib/config'
 import type { OracleData } from '../lib/indexer'
-
-const PREDICT_MANAGER_TYPE = `${PREDICT_PACKAGE}::predict::PredictManager`
 
 export function usePredict() {
   const account = useCurrentAccount()
@@ -19,31 +17,24 @@ export function usePredict() {
     if (!account) return null
     const result = await client.core.listOwnedObjects({
       owner: account.address,
-      filter: { StructType: PREDICT_MANAGER_TYPE },
+      type: PREDICT_MANAGER_TYPE,
     })
-    return result.data[0]?.objectId ?? null
+    return result.objects[0]?.objectId ?? null
   }
 
-  async function createManager(): Promise<string | null> {
-    if (!account) return null
-    setIsPending(true)
-    setError(null)
-    try {
-      const tx = buildCreateManagerTx({ senderAddress: account.address })
-      const result = await signAndExecuteTransaction({ transaction: tx })
-      if (result.$kind === 'FailedTransaction') {
-        setError('Failed to create prediction account')
-        return null
-      }
-      await client.waitForTransaction({ digest: result.Transaction.digest })
-      await queryClient.invalidateQueries({ queryKey: ['manager', account.address] })
-      return await getManagerObjectId()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Transaction failed')
+  async function ensureManager(): Promise<string | null> {
+    const existing = await getManagerObjectId()
+    if (existing) return existing
+
+    const tx = buildCreateManagerTx()
+    const result = await signAndExecuteTransaction({ transaction: tx })
+    if (result.$kind === 'FailedTransaction') {
+      setError('Failed to create prediction account')
       return null
-    } finally {
-      setIsPending(false)
     }
+
+    await client.waitForTransaction({ digest: result.Transaction.digest })
+    return await getManagerObjectId()
   }
 
   async function submitPick(params: {
@@ -56,17 +47,15 @@ export function usePredict() {
     setIsPending(true)
     setError(null)
     try {
-      let managerObjectId = await getManagerObjectId()
-      if (!managerObjectId) {
-        managerObjectId = await createManager()
-        if (!managerObjectId) return null
-      }
+      const managerObjectId = await ensureManager()
+      if (!managerObjectId) return null
 
       const tx = buildMintTx({
         managerObjectId,
         oracleObjectId: params.oracle.oracleId,
-        isAbove: params.direction === 'UP',
-        strike: BigInt(Math.round(params.oracle.atmStrike)),
+        direction: params.direction,
+        expiry: params.oracle.expiryTimestamp,
+        atmStrike: params.oracle.atmStrike,
         dusdcCoinObjectId: params.dusdcCoinObjectId,
         amount: params.amount,
         senderAddress: account.address,
@@ -81,7 +70,6 @@ export function usePredict() {
       const digest = result.Transaction.digest
       await client.waitForTransaction({ digest })
       await queryClient.invalidateQueries({ queryKey: ['dusdc-balance', account.address] })
-
       return digest
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Transaction failed')
@@ -92,8 +80,11 @@ export function usePredict() {
   }
 
   async function redeemPosition(params: {
-    positionObjectId: string
     oracleObjectId: string
+    direction: 'UP' | 'DOWN'
+    expiry: number
+    strike: number
+    amount: bigint
   }): Promise<boolean> {
     if (!account) return false
     setIsPending(true)
@@ -105,7 +96,10 @@ export function usePredict() {
       const tx = buildRedeemTx({
         managerObjectId,
         oracleObjectId: params.oracleObjectId,
-        positionObjectId: params.positionObjectId,
+        direction: params.direction,
+        expiry: params.expiry,
+        strike: params.strike,
+        amount: params.amount,
         senderAddress: account.address,
       })
 
@@ -122,5 +116,5 @@ export function usePredict() {
     }
   }
 
-  return { submitPick, redeemPosition, createManager, getManagerObjectId, isPending, error }
+  return { submitPick, redeemPosition, ensureManager, isPending, error }
 }

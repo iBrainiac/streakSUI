@@ -13,11 +13,11 @@ export function usedUSDCBalance() {
         owner: account!.address,
         coinType: DUSDC_TYPE,
       })
-      const total = result.data.reduce(
+      const total = result.objects.reduce(
         (sum: bigint, coin: { balance: string }) => sum + BigInt(coin.balance),
         BigInt(0),
       )
-      return { total, coins: result.data }
+      return { total, coins: result.objects }
     },
     enabled: !!account,
     refetchInterval: 15_000,

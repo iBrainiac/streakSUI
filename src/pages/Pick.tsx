@@ -39,7 +39,7 @@ export function Pick() {
     const digest = await submitPick({
       direction,
       oracle,
-      dusdcCoinObjectId: bestCoin.coinObjectId,
+      dusdcCoinObjectId: bestCoin.objectId,
       amount: amountMist,
     })
 
@@ -49,8 +49,10 @@ export function Pick() {
         date: format(new Date(), 'yyyy-MM-dd'),
         direction,
         amount,
+        amountRaw: amountMist.toString(),
         positionId: digest,
         oracleId: oracle.oracleId,
+        strike: oracle.atmStrike,
         expiryTimestamp: oracle.expiryTimestamp,
       })
       navigate('/')

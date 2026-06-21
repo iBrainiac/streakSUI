@@ -9,8 +9,10 @@ export type Pick = {
   date: string
   direction: 'UP' | 'DOWN'
   amount: number
+  amountRaw: string
   positionId: string
   oracleId: string
+  strike: number
   expiryTimestamp: number
   status: PickStatus
   pnl: number

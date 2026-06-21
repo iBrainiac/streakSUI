@@ -8,6 +8,7 @@ import { FaucetBanner } from '../components/FaucetBanner'
 import { useBTCPrice } from '../hooks/useBTCPrice'
 import { usedUSDCBalance } from '../hooks/usedUSDCBalance'
 import { useStreak } from '../hooks/useStreak'
+import { useAutoRedeem } from '../hooks/useAutoRedeem'
 
 export function Dashboard() {
   const navigate = useNavigate()
@@ -15,6 +16,8 @@ export function Dashboard() {
   const { data: oracle } = useBTCPrice()
   const { data: balance } = usedUSDCBalance()
   const { streak, todayPick, hasPickedToday } = useStreak()
+
+  useAutoRedeem()
 
   const showFaucetBanner = !!account && balance?.total === BigInt(0)
   const canPick = !!account && !hasPickedToday && !!oracle

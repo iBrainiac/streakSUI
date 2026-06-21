@@ -1,5 +1,14 @@
 import { INDEXER_URL } from './config'
 
+export type OracleMeta = {
+  oracleId: string
+  predictId: string
+  expiry: number
+  minStrike: number
+  tickSize: number
+  status: string
+}
+
 export type OracleData = {
   oracleId: string
   btcPrice: number
@@ -14,27 +23,32 @@ export type LeaderboardEntry = {
   totalPicks: number
 }
 
-// Fetches the current active BTC oracle with price and expiry info.
-// TODO: verify the exact endpoint path against the predict-server API docs.
-export async function fetchCurrentOracle(): Promise<OracleData> {
-  const res = await fetch(`${INDEXER_URL}/v1/oracle/current`)
+// Fetches the nearest active BTC oracle from the predict indexer.
+export async function fetchActiveOracle(): Promise<OracleMeta> {
+  const res = await fetch(
+    `${INDEXER_URL}/oracles?status=active&limit=1`,
+  )
   if (!res.ok) throw new Error(`Indexer error ${res.status}`)
-  const raw = await res.json()
+  const data: Array<Record<string, unknown>> = await res.json()
+  if (!data.length) throw new Error('No active oracle found')
+  const o = data[0]
   return {
-    oracleId: raw.oracle_id ?? raw.oracleId,
-    btcPrice: Number(raw.btc_price ?? raw.price),
-    expiryTimestamp: Number(raw.expiry_timestamp ?? raw.expiryTimestamp),
-    atmStrike: Number(raw.atm_strike ?? raw.atmStrike ?? raw.btc_price ?? raw.price),
+    oracleId: String(o.oracle_id),
+    predictId: String(o.predict_id),
+    expiry: Number(o.expiry),
+    minStrike: Number(o.min_strike),
+    tickSize: Number(o.tick_size),
+    status: String(o.status),
   }
 }
 
 export async function fetchLeaderboard(limit = 20): Promise<LeaderboardEntry[]> {
-  const res = await fetch(`${INDEXER_URL}/v1/leaderboard?limit=${limit}`)
+  const res = await fetch(`${INDEXER_URL}/leaderboard?limit=${limit}`)
   if (!res.ok) throw new Error(`Indexer error ${res.status}`)
   const raw: Array<Record<string, unknown>> = await res.json()
   return raw.map((e) => ({
     address: String(e.address),
-    streak: Number(e.streak),
+    streak: Number(e.streak ?? 0),
     winRate: Number(e.win_rate ?? e.winRate ?? 0),
     totalPicks: Number(e.total_picks ?? e.totalPicks ?? 0),
   }))

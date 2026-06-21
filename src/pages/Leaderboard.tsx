@@ -52,7 +52,7 @@ export function Leaderboard() {
     <div className="min-h-screen bg-zinc-950 flex flex-col">
       <header className="flex items-center gap-3 px-4 pt-6 pb-2">
         <button
-          onClick={() => navigate('/')}
+          onClick={() => navigate('/app')}
           className="text-gray-400 hover:text-white transition-colors text-lg"
         >
           ←
@@ -67,7 +67,7 @@ export function Leaderboard() {
 
       <main className="flex-1 flex flex-col gap-4 px-4 py-4 max-w-md mx-auto w-full">
         {account && (
-          <div className="rounded-2xl bg-zinc-900 border border-violet-500/30 px-5 py-4">
+          <div className="rounded-2xl bg-zinc-900 border border-[#4da2ff]/30 px-5 py-4">
             <p className="text-xs text-gray-500 uppercase tracking-widest mb-3">Your stats</p>
             <div className="flex items-center justify-between">
               <div>
@@ -129,7 +129,7 @@ export function Leaderboard() {
                 key={row.managerId}
                 className={`rounded-xl px-4 py-3 flex items-center gap-3 ${
                   row.isCurrentUser
-                    ? 'bg-violet-500/10 border border-violet-500/20'
+                    ? 'bg-[#4da2ff]/10 border border-[#4da2ff]/20'
                     : 'bg-zinc-900 border border-white/5'
                 }`}
               >
@@ -140,7 +140,7 @@ export function Leaderboard() {
                   <div className="flex items-center gap-2">
                     <p
                       className={`text-sm font-mono font-bold truncate ${
-                        row.isCurrentUser ? 'text-violet-300' : 'text-gray-300'
+                        row.isCurrentUser ? 'text-[#4da2ff]' : 'text-gray-300'
                       }`}
                     >
                       {row.isCurrentUser ? 'You' : truncate(row.address)}

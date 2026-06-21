@@ -63,13 +63,14 @@ export function Pick() {
         oracleId: oracle.oracleId,
         strike: oracle.atmStrike,
         expiryTimestamp: oracle.expiryTimestamp,
+        shielded: shield.active,
       })
-      navigate('/')
+      navigate('/app')
     }
   }
 
   if (hasPickedToday) {
-    navigate('/')
+    navigate('/app')
     return null
   }
 
@@ -77,7 +78,7 @@ export function Pick() {
     <div className="min-h-screen bg-zinc-950 flex flex-col">
       <header className="flex items-center gap-3 px-4 pt-6 pb-2">
         <button
-          onClick={() => navigate('/')}
+          onClick={() => navigate('/app')}
           className="text-gray-400 hover:text-white transition-colors text-lg"
         >
           ←
@@ -161,8 +162,19 @@ export function Pick() {
             />
             <span className="text-gray-500 font-semibold">dUSDC</span>
           </div>
+          {parseFloat(amountInput) > 0 && (
+            <div className="mt-3 pt-3 border-t border-white/5 flex items-center justify-between">
+              <p className="text-xs text-gray-500">Est. return if correct</p>
+              <div className="text-right">
+                <p className="text-sm font-bold text-white">
+                  {(parseFloat(amountInput) * 2).toFixed(2)} dUSDC
+                </p>
+                <p className="text-xs text-gray-600">~2× at ATM · varies with vol</p>
+              </div>
+            </div>
+          )}
           {shield.active && (
-            <p className="text-xs text-violet-400 mt-2">
+            <p className="text-xs text-[#4da2ff] mt-2">
               + 1 dUSDC shield = {totalCost.toFixed(2)} dUSDC total
             </p>
           )}

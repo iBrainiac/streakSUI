@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ConnectButton } from '@mysten/dapp-kit-react/ui'
 import { useCurrentAccount } from '@mysten/dapp-kit-react'
@@ -6,6 +7,7 @@ import { Countdown } from '../components/Countdown'
 import { StreakDisplay } from '../components/StreakDisplay'
 import { FaucetBanner } from '../components/FaucetBanner'
 import { BadgeUnlockModal } from '../components/BadgeUnlockModal'
+import { ShareCardModal } from '../components/ShareCardModal'
 import { useBTCPrice } from '../hooks/useBTCPrice'
 import { usedUSDCBalance } from '../hooks/usedUSDCBalance'
 import { useStreak } from '../hooks/useStreak'
@@ -18,7 +20,8 @@ export function Dashboard() {
   const account = useCurrentAccount()
   const { data: oracle } = useBTCPrice()
   const { data: balance } = usedUSDCBalance()
-  const { streak, picks, todayPick, hasPickedToday } = useStreak()
+  const { streak, bestStreak, picks, todayPick, hasPickedToday } = useStreak()
+  const [showShare, setShowShare] = useState(false)
   const { everUsed } = useStreakShield(account?.address)
 
   const { earned, newlyUnlocked, dismissUnlock } = useBadges({
@@ -44,8 +47,22 @@ export function Dashboard() {
     minutesToExpiry !== null &&
     minutesToExpiry < 60
 
+  const settledPicks = picks.filter((p) => p.status !== 'pending')
+  const wins = settledPicks.filter((p) => p.status === 'won').length
+  const winRate = settledPicks.length > 0 ? Math.round((wins / settledPicks.length) * 100) : 0
+
   return (
     <div className="min-h-screen bg-zinc-950 flex flex-col">
+      {showShare && account && (
+        <ShareCardModal
+          address={account.address}
+          streak={streak}
+          bestStreak={bestStreak}
+          earned={earned}
+          winRate={winRate}
+          onClose={() => setShowShare(false)}
+        />
+      )}
       {newlyUnlocked.length > 0 && (
         <BadgeUnlockModal
           badgeId={newlyUnlocked[0]}
@@ -110,7 +127,9 @@ export function Dashboard() {
                 ? 'bg-blue-500/10 border-blue-500/30'
                 : todayPick.status === 'won'
                   ? 'bg-emerald-500/10 border-emerald-500/30'
-                  : 'bg-red-500/10 border-red-500/30'
+                  : todayPick.status === 'shielded_loss'
+                    ? 'bg-amber-500/10 border-amber-500/30'
+                    : 'bg-red-500/10 border-red-500/30'
             }`}
           >
             <p className="text-xs text-gray-400 mb-1">Today's pick</p>
@@ -121,7 +140,9 @@ export function Dashboard() {
             >
               {todayPick.direction === 'UP' ? '▲ UP' : '▼ DOWN'}
             </p>
-            <p className="text-xs text-gray-500 mt-1 capitalize">{todayPick.status}</p>
+            <p className="text-xs text-gray-500 mt-1 capitalize">
+              {todayPick.status === 'shielded_loss' ? '🛡️ Shielded — streak kept' : todayPick.status}
+            </p>
           </div>
         )}
 
@@ -149,12 +170,26 @@ export function Dashboard() {
                 ? `${(Number(balance.total) / 1_000_000).toFixed(2)} dUSDC`
                 : '...'}
             </span>
-            <button
-              onClick={() => navigate('/leaderboard')}
-              className="text-gray-500 hover:text-white transition-colors"
-            >
-              Leaderboard →
-            </button>
+            <div className="flex gap-4">
+              <button
+                onClick={() => setShowShare(true)}
+                className="text-gray-500 hover:text-[#4da2ff] transition-colors"
+              >
+                Share
+              </button>
+              <button
+                onClick={() => navigate('/profile')}
+                className="text-gray-500 hover:text-[#4da2ff] transition-colors"
+              >
+                Profile
+              </button>
+              <button
+                onClick={() => navigate('/leaderboard')}
+                className="text-gray-500 hover:text-[#4da2ff] transition-colors"
+              >
+                Leaderboard →
+              </button>
+            </div>
           </div>
         )}
       </main>

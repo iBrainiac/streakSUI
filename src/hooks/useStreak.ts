@@ -2,7 +2,7 @@ import { useCallback } from 'react'
 import { useCurrentAccount } from '@mysten/dapp-kit-react'
 import { format } from 'date-fns'
 
-export type PickStatus = 'pending' | 'won' | 'lost'
+export type PickStatus = 'pending' | 'won' | 'lost' | 'shielded_loss'
 
 export type Pick = {
   id: string
@@ -16,6 +16,7 @@ export type Pick = {
   expiryTimestamp: number
   status: PickStatus
   pnl: number
+  shielded?: boolean
 }
 
 function storageKey(address: string) {
@@ -35,6 +36,7 @@ function savePicks(address: string, picks: Pick[]) {
   localStorage.setItem(storageKey(address), JSON.stringify(picks))
 }
 
+// shielded_loss is neutral — it does not extend or break the streak
 function computeStreak(picks: Pick[]): number {
   const settled = picks
     .filter((p) => p.status !== 'pending')
@@ -43,9 +45,30 @@ function computeStreak(picks: Pick[]): number {
   let streak = 0
   for (const pick of settled) {
     if (pick.status === 'won') streak++
+    else if (pick.status === 'shielded_loss') continue
     else break
   }
   return streak
+}
+
+function computeBestStreak(picks: Pick[]): number {
+  const settled = picks
+    .filter((p) => p.status !== 'pending')
+    .sort((a, b) => a.date.localeCompare(b.date))
+
+  let best = 0
+  let current = 0
+  for (const pick of settled) {
+    if (pick.status === 'won') {
+      current++
+      if (current > best) best = current
+    } else if (pick.status === 'shielded_loss') {
+      // neutral
+    } else {
+      current = 0
+    }
+  }
+  return best
 }
 
 export function useStreak() {
@@ -54,6 +77,7 @@ export function useStreak() {
 
   const picks = address ? loadPicks(address) : []
   const streak = computeStreak(picks)
+  const bestStreak = computeBestStreak(picks)
   const today = format(new Date(), 'yyyy-MM-dd')
   const todayPick = picks.find((p) => p.date === today)
   const pendingPicks = picks.filter((p) => p.status === 'pending')
@@ -72,11 +96,11 @@ export function useStreak() {
     (positionId: string, won: boolean, pnl: number) => {
       if (!address) return
       const existing = loadPicks(address)
-      const updated = existing.map((p) =>
-        p.positionId === positionId
-          ? { ...p, status: (won ? 'won' : 'lost') as PickStatus, pnl }
-          : p,
-      )
+      const updated = existing.map((p) => {
+        if (p.positionId !== positionId) return p
+        const newStatus: PickStatus = won ? 'won' : p.shielded ? 'shielded_loss' : 'lost'
+        return { ...p, status: newStatus, pnl }
+      })
       savePicks(address, updated)
     },
     [address],
@@ -84,5 +108,5 @@ export function useStreak() {
 
   const hasPickedToday = !!todayPick
 
-  return { picks, streak, todayPick, pendingPicks, hasPickedToday, addPick, resolvePick }
+  return { picks, streak, bestStreak, todayPick, pendingPicks, hasPickedToday, addPick, resolvePick }
 }

@@ -59,8 +59,9 @@ export function useBadges({ address, streak, picks, shieldUsed, rank }: BadgeInp
     if (!address) return
 
     const current = loadEarned(address)
-    const completed = picks.filter((p) => p.status === 'won' || p.status === 'lost')
-    const lastFive = completed.slice(-5)
+    // shielded_loss is neutral for badge checks — skip it when counting win runs
+    const relevant = picks.filter((p) => p.status === 'won' || p.status === 'lost')
+    const lastFive = relevant.slice(-5)
     const fiveInARow = lastFive.length === 5 && lastFive.every((p) => p.status === 'won')
 
     const checks: Array<{ id: BadgeId; pass: boolean }> = [

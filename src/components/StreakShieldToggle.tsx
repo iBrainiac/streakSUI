@@ -12,7 +12,7 @@ export function StreakShieldToggle({ active, available, nextRecharge, onToggle }
     <div
       className={`rounded-2xl border px-4 py-4 transition-all ${
         active
-          ? 'bg-violet-500/10 border-violet-500/50'
+          ? 'bg-[#4da2ff]/10 border-[#4da2ff]/50'
           : available
             ? 'bg-zinc-900 border-white/5'
             : 'bg-zinc-900 border-white/5 opacity-60'
@@ -44,7 +44,7 @@ export function StreakShieldToggle({ active, available, nextRecharge, onToggle }
           onClick={onToggle}
           disabled={!available}
           className={`relative w-12 h-6 rounded-full transition-colors flex-shrink-0 ${
-            active ? 'bg-violet-500' : 'bg-zinc-700'
+            active ? 'bg-[#4da2ff]' : 'bg-zinc-700'
           } ${!available ? 'cursor-not-allowed' : 'cursor-pointer'}`}
           aria-label="Toggle Streak Shield"
         >

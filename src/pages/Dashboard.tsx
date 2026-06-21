@@ -71,10 +71,23 @@ export function Dashboard() {
       )}
 
       <header className="flex items-center justify-between px-4 pt-6 pb-2">
-        <div>
-          <h1 className="text-white font-black text-xl tracking-tight">StreakSui</h1>
-          <p className="text-gray-600 text-xs">Daily BTC Predict</p>
-        </div>
+        <button
+          onClick={() => navigate('/')}
+          className="flex items-center gap-2.5 group active:scale-95 transition-transform"
+        >
+          <span className="text-2xl group-hover:scale-110 transition-transform">🔥</span>
+          <div>
+            <h1
+              className="font-black text-xl tracking-tight bg-clip-text text-transparent leading-tight"
+              style={{
+                backgroundImage: 'linear-gradient(135deg, #ffffff 40%, #4da2ff)',
+              }}
+            >
+              StreakSui
+            </h1>
+            <p className="text-gray-600 text-xs text-left">Daily BTC Predict</p>
+          </div>
+        </button>
         <ConnectButton />
       </header>
 

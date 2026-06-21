@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useCurrentAccount, useCurrentClient, useDAppKit } from '@mysten/dapp-kit-react'
 import { buildMintTx, buildRedeemTx, buildCreateManagerTx } from '../lib/predict'
-import { PREDICT_MANAGER_TYPE } from '../lib/config'
+import { PREDICT_MANAGER_TYPE, TICK_SIZE } from '../lib/config'
+import { SHIELD_COST_RAW } from './useStreakShield'
 import type { OracleData } from '../lib/indexer'
 
 export function usePredict() {
@@ -42,6 +43,7 @@ export function usePredict() {
     oracle: OracleData
     dusdcCoinObjectId: string
     amount: bigint
+    withShield?: boolean
   }): Promise<string | null> {
     if (!account) return null
     setIsPending(true)
@@ -50,16 +52,29 @@ export function usePredict() {
       const managerObjectId = await ensureManager()
       if (!managerObjectId) return null
 
-      const tx = buildMintTx({
-        managerObjectId,
-        oracleObjectId: params.oracle.oracleId,
-        direction: params.direction,
-        expiry: params.oracle.expiryTimestamp,
-        atmStrike: params.oracle.atmStrike,
-        dusdcCoinObjectId: params.dusdcCoinObjectId,
-        amount: params.amount,
-        senderAddress: account.address,
-      })
+      const shieldRange = params.withShield
+        ? {
+            oracleObjectId: params.oracle.oracleId,
+            expiry: params.oracle.expiryTimestamp,
+            lowerStrike: params.oracle.atmStrike - 100 * TICK_SIZE,
+            upperStrike: params.oracle.atmStrike + 100 * TICK_SIZE,
+            amount: SHIELD_COST_RAW,
+          }
+        : undefined
+
+      const tx = buildMintTx(
+        {
+          managerObjectId,
+          oracleObjectId: params.oracle.oracleId,
+          direction: params.direction,
+          expiry: params.oracle.expiryTimestamp,
+          atmStrike: params.oracle.atmStrike,
+          dusdcCoinObjectId: params.dusdcCoinObjectId,
+          amount: params.amount,
+          senderAddress: account.address,
+        },
+        shieldRange,
+      )
 
       const result = await signAndExecuteTransaction({ transaction: tx })
       if (result.$kind === 'FailedTransaction') {

@@ -42,14 +42,30 @@ export async function fetchActiveOracle(): Promise<OracleMeta> {
   }
 }
 
-export async function fetchLeaderboard(limit = 20): Promise<LeaderboardEntry[]> {
-  const res = await fetch(`${INDEXER_URL}/leaderboard?limit=${limit}`)
+export type ActivePlayer = {
+  address: string
+  managerId: string
+  joinedAt: number
+}
+
+// Fetches wallets that have created a PredictManager — real on-chain protocol participants.
+// The /leaderboard endpoint is not exposed; /managers gives us the same ground truth.
+export async function fetchActivePlayers(limit = 50): Promise<ActivePlayer[]> {
+  const res = await fetch(`${INDEXER_URL}/managers?limit=${limit}`)
   if (!res.ok) throw new Error(`Indexer error ${res.status}`)
   const raw: Array<Record<string, unknown>> = await res.json()
-  return raw.map((e) => ({
-    address: String(e.address),
-    streak: Number(e.streak ?? 0),
-    winRate: Number(e.win_rate ?? e.winRate ?? 0),
-    totalPicks: Number(e.total_picks ?? e.totalPicks ?? 0),
-  }))
+  const seen = new Set<string>()
+  const players: ActivePlayer[] = []
+  for (const e of raw) {
+    const addr = String(e.owner)
+    if (!seen.has(addr)) {
+      seen.add(addr)
+      players.push({
+        address: addr,
+        managerId: String(e.manager_id),
+        joinedAt: Number(e.checkpoint_timestamp_ms),
+      })
+    }
+  }
+  return players
 }

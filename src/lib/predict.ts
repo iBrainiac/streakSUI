@@ -54,8 +54,17 @@ function buildMarketKey(
   })
 }
 
+export type ShieldParams = {
+  oracleObjectId: string
+  expiry: number
+  lowerStrike: number
+  upperStrike: number
+  amount: bigint
+}
+
 // Builds the PTB that deposits dUSDC into the manager then opens a binary position.
-export function buildMintTx(params: MintParams): Transaction {
+// When shieldParams is provided the same PTB also opens a range position (Streak Shield).
+export function buildMintTx(params: MintParams, shield?: ShieldParams): Transaction {
   const tx = new Transaction()
 
   const [payment] = tx.splitCoins(tx.object(params.dusdcCoinObjectId), [
@@ -88,6 +97,38 @@ export function buildMintTx(params: MintParams): Transaction {
       tx.object(CLOCK_ID),
     ],
   })
+
+  if (shield) {
+    const [shieldPayment] = tx.splitCoins(tx.object(params.dusdcCoinObjectId), [
+      tx.pure.u64(shield.amount),
+    ])
+    tx.moveCall({
+      target: `${PREDICT_PACKAGE}::predict_manager::deposit`,
+      typeArguments: [DUSDC_TYPE],
+      arguments: [tx.object(params.managerObjectId), shieldPayment],
+    })
+    const rangeKey = tx.moveCall({
+      target: `${PREDICT_PACKAGE}::range_key::new`,
+      arguments: [
+        tx.pure.address(shield.oracleObjectId),
+        tx.pure.u64(shield.expiry),
+        tx.pure.u64(shield.lowerStrike),
+        tx.pure.u64(shield.upperStrike),
+      ],
+    })
+    tx.moveCall({
+      target: `${PREDICT_PACKAGE}::predict::mint_range`,
+      typeArguments: [DUSDC_TYPE],
+      arguments: [
+        tx.object(PREDICT_SHARED_OBJECT_ID),
+        tx.object(params.managerObjectId),
+        tx.object(shield.oracleObjectId),
+        rangeKey,
+        tx.pure.u64(shield.amount),
+        tx.object(CLOCK_ID),
+      ],
+    })
+  }
 
   return tx
 }

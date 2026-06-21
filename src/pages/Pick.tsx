@@ -5,6 +5,8 @@ import { useBTCPrice } from '../hooks/useBTCPrice'
 import { usedUSDCBalance } from '../hooks/usedUSDCBalance'
 import { useStreak } from '../hooks/useStreak'
 import { usePredict } from '../hooks/usePredict'
+import { useStreakShield } from '../hooks/useStreakShield'
+import { StreakShieldToggle } from '../components/StreakShieldToggle'
 import { format } from 'date-fns'
 
 type Direction = 'UP' | 'DOWN'
@@ -18,17 +20,21 @@ export function Pick() {
   const { data: balance } = usedUSDCBalance()
   const { hasPickedToday, addPick } = useStreak()
   const { submitPick, isPending, error } = usePredict()
+  const shield = useStreakShield(account?.address)
 
   const [direction, setDirection] = useState<Direction | null>(null)
   const [amountInput, setAmountInput] = useState('10')
 
   const maxAmount = balance ? Number(balance.total) / 10 ** DUSDC_DECIMALS : 0
 
+  const shieldCostDUSDC = shield.active ? Number(shield.costRaw) / 10 ** DUSDC_DECIMALS : 0
+  const totalCost = parseFloat(amountInput) + shieldCostDUSDC
+
   async function handleConfirm() {
     if (!account || !oracle || !direction || !balance?.coins.length) return
 
     const amount = parseFloat(amountInput)
-    if (isNaN(amount) || amount <= 0 || amount > maxAmount) return
+    if (isNaN(amount) || amount <= 0 || totalCost > maxAmount) return
 
     const amountMist = BigInt(Math.round(amount * 10 ** DUSDC_DECIMALS))
     const bestCoin = balance.coins.sort(
@@ -41,9 +47,12 @@ export function Pick() {
       oracle,
       dusdcCoinObjectId: bestCoin.objectId,
       amount: amountMist,
+      withShield: shield.active,
     })
 
     if (digest) {
+      if (shield.active) shield.consume()
+
       addPick({
         id: digest,
         date: format(new Date(), 'yyyy-MM-dd'),
@@ -129,7 +138,11 @@ export function Pick() {
               Amount
             </label>
             <button
-              onClick={() => setAmountInput(maxAmount.toFixed(2))}
+              onClick={() =>
+                setAmountInput(
+                  Math.max(0, maxAmount - shieldCostDUSDC).toFixed(2),
+                )
+              }
               className="text-xs text-gray-500 hover:text-white transition-colors"
             >
               Max: {maxAmount.toFixed(2)} dUSDC
@@ -148,7 +161,19 @@ export function Pick() {
             />
             <span className="text-gray-500 font-semibold">dUSDC</span>
           </div>
+          {shield.active && (
+            <p className="text-xs text-violet-400 mt-2">
+              + 1 dUSDC shield = {totalCost.toFixed(2)} dUSDC total
+            </p>
+          )}
         </div>
+
+        <StreakShieldToggle
+          active={shield.active}
+          available={shield.available}
+          nextRecharge={shield.nextRecharge}
+          onToggle={shield.toggle}
+        />
 
         {error && (
           <p className="text-red-400 text-sm text-center px-2">{error}</p>
@@ -156,7 +181,7 @@ export function Pick() {
 
         <button
           onClick={handleConfirm}
-          disabled={!direction || !oracle || isPending || parseFloat(amountInput) <= 0}
+          disabled={!direction || !oracle || isPending || parseFloat(amountInput) <= 0 || totalCost > maxAmount}
           className={`w-full rounded-2xl py-5 text-lg font-black transition-all ${
             direction && !isPending
               ? direction === 'UP'
@@ -168,7 +193,7 @@ export function Pick() {
           {isPending
             ? 'Confirming...'
             : direction
-              ? `Confirm ${direction}`
+              ? `Confirm ${direction}${shield.active ? ' + Shield' : ''}`
               : 'Select UP or DOWN'}
         </button>
 

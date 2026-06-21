@@ -4,6 +4,7 @@ import { DAppKitProvider } from '@mysten/dapp-kit-react'
 import { dAppKit } from './lib/sui'
 import { Dashboard } from './pages/Dashboard'
 import { Pick } from './pages/Pick'
+import { Leaderboard } from './pages/Leaderboard'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -22,6 +23,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/pick" element={<Pick />} />
+            <Route path="/leaderboard" element={<Leaderboard />} />
           </Routes>
         </BrowserRouter>
       </DAppKitProvider>

@@ -177,7 +177,7 @@ export function buildRedeemTx(params: RedeemParams): Transaction {
 export function buildCreateManagerTx(): Transaction {
   const tx = new Transaction()
   tx.moveCall({
-    target: `${PREDICT_PACKAGE}::predict_manager::new`,
+    target: `${PREDICT_PACKAGE}::predict::create_manager`,
     arguments: [],
   })
   return tx

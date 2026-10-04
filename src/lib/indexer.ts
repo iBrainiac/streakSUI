@@ -1,4 +1,11 @@
-import { INDEXER_URL } from './config'
+import {
+  BTC_SPOT_STORE,
+  GRAPHQL_URL,
+  INDEXER_URL,
+  POOL_VAULT_ID,
+  PRICE_SCALE,
+  TICK_SIZE,
+} from './config'
 
 export type OracleMeta = {
   oracleId: string
@@ -23,22 +30,136 @@ export type LeaderboardEntry = {
   totalPicks: number
 }
 
-// Fetches the nearest active BTC oracle from the predict indexer.
-export async function fetchActiveOracle(): Promise<OracleMeta> {
-  const res = await fetch(
-    `${INDEXER_URL}/oracles?status=active&limit=1`,
+type GraphQLObjectJson = {
+  data?: {
+    object?: {
+      asMoveObject?: {
+        contents?: { json?: unknown }
+      }
+    }
+  }
+  errors?: Array<{ message: string }>
+}
+
+type SpotRead = {
+  source_timestamp_ms: string
+  value: string
+}
+
+type ActiveExpiryMarket = {
+  expiry_market_id: string
+  expiry_ms: string
+}
+
+async function readMoveObjectJson(objectId: string): Promise<unknown> {
+  const res = await fetch(GRAPHQL_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      query: `query ($id: SuiAddress!) {
+        object(address: $id) {
+          asMoveObject { contents { json } }
+        }
+      }`,
+      variables: { id: objectId },
+    }),
+  })
+  if (!res.ok) throw new Error(`GraphQL error ${res.status}`)
+  const payload = (await res.json()) as GraphQLObjectJson
+  if (payload.errors?.length) {
+    throw new Error(payload.errors[0]?.message ?? 'GraphQL query failed')
+  }
+  const json = payload.data?.object?.asMoveObject?.contents?.json
+  if (!json) throw new Error(`Object ${objectId} not found`)
+  return json
+}
+
+function latestSpotUsd(json: unknown): { priceUsd: number; raw: number } {
+  const store = json as { spot_reads?: SpotRead[] }
+  const reads = store.spot_reads ?? []
+  if (!reads.length) throw new Error('No Block Scholes spot reads')
+
+  const latest = reads.reduce((best, read) =>
+    Number(read.source_timestamp_ms) > Number(best.source_timestamp_ms)
+      ? read
+      : best,
   )
-  if (!res.ok) throw new Error(`Indexer error ${res.status}`)
-  const data: Array<Record<string, unknown>> = await res.json()
-  if (!data.length) throw new Error('No active oracle found')
-  const o = data[0]
+  const raw = Number(latest.value)
+  if (!Number.isFinite(raw) || raw <= 0) throw new Error('Invalid spot value')
+  return { priceUsd: raw / PRICE_SCALE, raw }
+}
+
+function nearestOpenMarket(json: unknown): ActiveExpiryMarket | null {
+  const vault = json as {
+    expiry_accounting?: { active_expiry_markets?: ActiveExpiryMarket[] }
+  }
+  const markets = vault.expiry_accounting?.active_expiry_markets ?? []
+  const now = Date.now()
+  const open = markets
+    .filter((m) => Number(m.expiry_ms) > now)
+    .sort((a, b) => Number(a.expiry_ms) - Number(b.expiry_ms))
+  return open[0] ?? null
+}
+
+async function fetchSpotUsdFallback(): Promise<number> {
+  const res = await fetch('https://api.coinbase.com/v2/prices/BTC-USD/spot')
+  if (!res.ok) throw new Error(`Coinbase error ${res.status}`)
+  const body = (await res.json()) as { data?: { amount?: string } }
+  const price = Number(body.data?.amount)
+  if (!Number.isFinite(price) || price <= 0) {
+    throw new Error('Invalid Coinbase spot')
+  }
+  return price
+}
+
+// Live BTC oracle from the current deepbook-predict-testnet objects.
+// The old /oracles indexer host is gone, and public JSON-RPC is deprecated.
+export async function fetchLiveOracle(): Promise<OracleData> {
+  let priceUsd: number
+  let rawSpot = 0
+
+  try {
+    const spotJson = await readMoveObjectJson(BTC_SPOT_STORE)
+    const spot = latestSpotUsd(spotJson)
+    priceUsd = spot.priceUsd
+    rawSpot = spot.raw
+  } catch {
+    priceUsd = await fetchSpotUsdFallback()
+    rawSpot = Math.round(priceUsd * PRICE_SCALE)
+  }
+
+  let marketId = BTC_SPOT_STORE
+  let expiry = Date.now() + 5 * 60_000
+
+  try {
+    const vaultJson = await readMoveObjectJson(POOL_VAULT_ID)
+    const market = nearestOpenMarket(vaultJson)
+    if (market) {
+      marketId = market.expiry_market_id
+      expiry = Number(market.expiry_ms)
+    }
+  } catch {
+    // Price still displays if vault lookup fails.
+  }
+
   return {
-    oracleId: String(o.oracle_id),
-    predictId: String(o.predict_id),
-    expiry: Number(o.expiry),
-    minStrike: Number(o.min_strike),
-    tickSize: Number(o.tick_size),
-    status: String(o.status),
+    oracleId: marketId,
+    btcPrice: priceUsd,
+    expiryTimestamp: expiry,
+    atmStrike: Math.round(rawSpot / TICK_SIZE) * TICK_SIZE,
+  }
+}
+
+// Legacy helper kept for any callers that still expect OracleMeta.
+export async function fetchActiveOracle(): Promise<OracleMeta> {
+  const live = await fetchLiveOracle()
+  return {
+    oracleId: live.oracleId,
+    predictId: POOL_VAULT_ID,
+    expiry: live.expiryTimestamp,
+    minStrike: live.atmStrike,
+    tickSize: TICK_SIZE,
+    status: 'active',
   }
 }
 

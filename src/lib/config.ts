@@ -22,6 +22,17 @@ export const PRICE_SCALE = 1_000_000_000
 // Distance between consecutive valid strikes in the oracle price grid.
 export const TICK_SIZE = 1_000_000_000
 
+// Current deepbook-predict-testnet deployment (2026-09). Public JSON-RPC
+// is deprecated; read live objects through GraphQL instead.
+export const GRAPHQL_URL = 'https://graphql.testnet.sui.io/graphql'
+
+export const BTC_SPOT_STORE =
+  '0x1e5142471311505a7428b072230c9ffe8a747b3b9392720e39246af4aea08216'
+
+export const POOL_VAULT_ID =
+  '0x6fd178a49848387d60ccfd3e53bf06969929970246a3a7983ae5bb2a5ed52ee3'
+
+// Retired host from the older predict-8-21 deployment. Do not use for price.
 export const INDEXER_URL = 'https://predict-server.testnet.mystenlabs.com'
 
 export const FAUCET_URL = 'https://tally.so/r/Xx102L'

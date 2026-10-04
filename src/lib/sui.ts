@@ -1,18 +1,17 @@
 import { createDAppKit } from '@mysten/dapp-kit-react'
-import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc'
+import { SuiGrpcClient } from '@mysten/sui/grpc'
 
-// TODO: migrate to SuiGrpcClient once the testnet gRPC endpoint is confirmed.
-// The gRPC client requires a baseUrl (e.g. https://rpc.testnet.sui.io) which
-// is not yet documented for testnet. SuiJsonRpcClient works identically for
-// all dApp Kit operations and satisfies DAppKitCompatibleClient in the meantime.
-const TESTNET_RPC_URL = 'https://fullnode.testnet.sui.io:443'
+const GRPC_URLS = {
+  testnet: 'https://fullnode.testnet.sui.io:443',
+  mainnet: 'https://fullnode.mainnet.sui.io:443',
+} as const
 
 export const dAppKit = createDAppKit({
   networks: ['testnet'],
   createClient: (network) =>
-    new SuiJsonRpcClient({
+    new SuiGrpcClient({
       network,
-      url: TESTNET_RPC_URL,
+      baseUrl: GRPC_URLS[network as keyof typeof GRPC_URLS] ?? GRPC_URLS.testnet,
     }),
 })
 

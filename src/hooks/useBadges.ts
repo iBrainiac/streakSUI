@@ -48,11 +48,8 @@ export function useBadges({ address, streak, picks, shieldUsed, rank }: BadgeInp
   const [newlyUnlocked, setNewlyUnlocked] = useState<BadgeId[]>([])
 
   useEffect(() => {
-    if (!address) {
-      setEarned([])
-      return
-    }
-    setEarned(loadEarned(address))
+    const next = address ? loadEarned(address) : []
+    queueMicrotask(() => setEarned(next))
   }, [address])
 
   useEffect(() => {
@@ -80,8 +77,10 @@ export function useBadges({ address, streak, picks, shieldUsed, rank }: BadgeInp
     if (toAdd.length) {
       const updated = [...current, ...toAdd]
       saveEarned(address, updated)
-      setEarned(updated)
-      setNewlyUnlocked(toAdd)
+      queueMicrotask(() => {
+        setEarned(updated)
+        setNewlyUnlocked(toAdd)
+      })
     }
   }, [address, streak, picks, shieldUsed, rank])
 

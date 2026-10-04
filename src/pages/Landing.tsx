@@ -1,7 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
 import { useBTCPrice } from '../hooks/useBTCPrice'
-import { fetchActivePlayers } from '../lib/indexer'
 
 const SUI_BLUE = '#4da2ff'
 
@@ -16,12 +14,6 @@ function formatUSD(n: number) {
 export function Landing() {
   const navigate = useNavigate()
   const { data: oracle } = useBTCPrice()
-
-  const { data: playerCount } = useQuery({
-    queryKey: ['player-count'],
-    queryFn: () => fetchActivePlayers(50).then((p) => p.length),
-    staleTime: 120_000,
-  })
 
   return (
     <div className="min-h-screen bg-[#09090b] text-white overflow-x-hidden">
@@ -119,8 +111,10 @@ export function Landing() {
       <div className="relative z-10 border-y border-white/[0.06] bg-white/[0.015] py-6">
         <div className="max-w-3xl mx-auto px-4 grid grid-cols-3 divide-x divide-white/[0.06] text-center">
           <div className="px-4">
-            <p className="font-black text-2xl text-white">{playerCount ?? '—'}</p>
-            <p className="text-gray-600 text-xs mt-0.5">players on-chain</p>
+            <p className="font-black text-2xl text-white">
+              {oracle?.openMarketCount ?? '—'}
+            </p>
+            <p className="text-gray-600 text-xs mt-0.5">open BTC markets</p>
           </div>
           <div className="px-4">
             <p className="font-black text-2xl text-white">Sub-hour</p>

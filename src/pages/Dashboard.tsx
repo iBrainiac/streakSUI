@@ -9,9 +9,10 @@ import { FaucetBanner } from '../components/FaucetBanner'
 import { BadgeUnlockModal } from '../components/BadgeUnlockModal'
 import { ShareCardModal } from '../components/ShareCardModal'
 import { useBTCPrice } from '../hooks/useBTCPrice'
-import { usedUSDCBalance } from '../hooks/usedUSDCBalance'
+import { useDUSDCBalance } from '../hooks/usedUSDCBalance'
+import { useNow } from '../hooks/useNow'
 import { useStreak } from '../hooks/useStreak'
-import { useAutoRedeem } from '../hooks/useAutoRedeem'
+import { usePredict } from '../hooks/usePredict'
 import { useBadges, ALL_BADGES } from '../hooks/useBadges'
 import { useStreakShield } from '../hooks/useStreakShield'
 
@@ -19,8 +20,12 @@ export function Dashboard() {
   const navigate = useNavigate()
   const account = useCurrentAccount()
   const { data: oracle } = useBTCPrice()
-  const { data: balance } = usedUSDCBalance()
-  const { streak, bestStreak, picks, todayPick, hasPickedToday } = useStreak()
+  const { data: balance } = useDUSDCBalance()
+  const now = useNow(1_000)
+  const { streak, bestStreak, picks, todayPick, hasPickedToday, pendingPicks, resolvePick } =
+    useStreak()
+  const claimablePicks = pendingPicks.filter((p) => p.expiryTimestamp < now)
+  const { claimPick, isPending: isClaiming } = usePredict()
   const [showShare, setShowShare] = useState(false)
   const { everUsed } = useStreakShield(account?.address)
 
@@ -31,13 +36,11 @@ export function Dashboard() {
     shieldUsed: everUsed,
   })
 
-  useAutoRedeem()
-
   const showFaucetBanner = !!account && balance?.total === BigInt(0)
   const canPick = !!account && !hasPickedToday && !!oracle
 
   const minutesToExpiry = oracle
-    ? Math.max(0, (oracle.expiryTimestamp - Date.now()) / 60_000)
+    ? Math.max(0, (oracle.expiryTimestamp - now) / 60_000)
     : null
 
   const streakAtRisk =
@@ -156,6 +159,28 @@ export function Dashboard() {
             <p className="text-xs text-gray-500 mt-1 capitalize">
               {todayPick.status === 'shielded_loss' ? '🛡️ Shielded — streak kept' : todayPick.status}
             </p>
+          </div>
+        )}
+
+        {account && claimablePicks.length > 0 && (
+          <div className="rounded-xl bg-[#4da2ff]/10 border border-[#4da2ff]/30 px-4 py-3">
+            <p className="text-[#4da2ff] font-bold text-sm mb-2">
+              {claimablePicks.length} pick{claimablePicks.length > 1 ? 's' : ''} ready to claim
+            </p>
+            <button
+              disabled={isClaiming}
+              onClick={async () => {
+                for (const pick of claimablePicks) {
+                  const claimed = await claimPick(pick)
+                  if (claimed) {
+                    resolvePick(pick.positionId, claimed.payout > 0, claimed.payout || -pick.amount)
+                  }
+                }
+              }}
+              className="w-full rounded-xl bg-[#4da2ff] text-black font-bold py-2.5 text-sm active:scale-95 disabled:opacity-60"
+            >
+              {isClaiming ? 'Claiming…' : 'Claim settled picks'}
+            </button>
           </div>
         )}
 

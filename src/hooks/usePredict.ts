@@ -1,10 +1,28 @@
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useCurrentAccount, useCurrentClient, useDAppKit } from '@mysten/dapp-kit-react'
-import { buildMintTx, buildRedeemTx, buildCreateManagerTx } from '../lib/predict'
-import { PREDICT_MANAGER_TYPE, TICK_SIZE } from '../lib/config'
+import { UNDERLYING } from '../lib/config'
+import {
+  asDecodable,
+  binaryDescriptor,
+  createPredict,
+  nearestTradeableMarket,
+  quoteSpend,
+  rangeDescriptor,
+  roundUsdc,
+} from '../lib/predict'
 import { SHIELD_COST_RAW } from './useStreakShield'
-import type { OracleData } from '../lib/indexer'
+import type { Pick as StreakPick } from './useStreak'
+
+export type SubmittedPick = {
+  digest: string
+  orderId: string
+  marketId: string
+  expiryMs: number
+  strikeUsd: number
+}
+
+const SHIELD_HALF_WIDTH_USD = 100
 
 export function usePredict() {
   const account = useCurrentAccount()
@@ -14,78 +32,107 @@ export function usePredict() {
   const [isPending, setIsPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  async function getManagerObjectId(): Promise<string | null> {
-    if (!account) return null
-    const result = await client.core.listOwnedObjects({
-      owner: account.address,
-      type: PREDICT_MANAGER_TYPE,
-    })
-    return result.objects[0]?.objectId ?? null
+  async function wait(digest: string) {
+    await client.core.waitForTransaction({ digest })
+    if (account) {
+      await queryClient.invalidateQueries({ queryKey: ['dusdc-balance', account.address] })
+    }
   }
 
-  async function ensureManager(): Promise<string | null> {
-    const existing = await getManagerObjectId()
-    if (existing) return existing
-
-    const tx = buildCreateManagerTx()
+  async function execute(tx: Parameters<typeof signAndExecuteTransaction>[0]['transaction']) {
     const result = await signAndExecuteTransaction({ transaction: tx })
     if (result.$kind === 'FailedTransaction') {
-      setError('Failed to create prediction account')
-      return null
+      throw new Error(
+        result.FailedTransaction.status.error?.message ?? 'Transaction failed on-chain',
+      )
+    }
+    const digest = result.Transaction.digest
+    await wait(digest)
+    return { digest, result }
+  }
+
+  async function ensureFunded(spendUsdc: number) {
+    if (!account) throw new Error('Connect a wallet first')
+    const predict = createPredict(client)
+    const owner = account.address
+
+    let accountUsd = 0
+    let exists = true
+    try {
+      accountUsd = await predict.read.balance(owner)
+    } catch {
+      exists = false
     }
 
-    await client.waitForTransaction({ digest: result.Transaction.digest })
-    return await getManagerObjectId()
+    const shortfall = roundUsdc(Math.max(0, spendUsdc - accountUsd))
+    if (!exists) {
+      const { digest } = await execute(
+        predict.tx.deposit(owner, Math.max(shortfall, spendUsdc), { create: true }),
+      )
+      return { predict, created: true, digest }
+    }
+    if (shortfall > 0) {
+      await execute(predict.tx.deposit(owner, shortfall))
+    }
+    return { predict, created: false }
   }
 
   async function submitPick(params: {
     direction: 'UP' | 'DOWN'
-    oracle: OracleData
-    dusdcCoinObjectId: string
-    amount: bigint
+    spendUsdc: number
     withShield?: boolean
-  }): Promise<string | null> {
+  }): Promise<SubmittedPick | null> {
     if (!account) return null
     setIsPending(true)
     setError(null)
     try {
-      const managerObjectId = await ensureManager()
-      if (!managerObjectId) return null
+      const shieldUsd = params.withShield ? Number(SHIELD_COST_RAW) / 1_000_000 : 0
+      const { predict } = await ensureFunded(params.spendUsdc + shieldUsd)
 
-      const shieldRange = params.withShield
-        ? {
-            oracleObjectId: params.oracle.oracleId,
-            expiry: params.oracle.expiryTimestamp,
-            lowerStrike: params.oracle.atmStrike - 100 * TICK_SIZE,
-            upperStrike: params.oracle.atmStrike + 100 * TICK_SIZE,
-            amount: SHIELD_COST_RAW,
-          }
-        : undefined
+      const market = nearestTradeableMarket(await predict.read.markets())
+      if (!market) throw new Error('No open BTC market to trade')
 
-      const tx = buildMintTx(
-        {
-          managerObjectId,
-          oracleObjectId: params.oracle.oracleId,
-          direction: params.direction,
-          expiry: params.oracle.expiryTimestamp,
-          atmStrike: params.oracle.atmStrike,
-          dusdcCoinObjectId: params.dusdcCoinObjectId,
-          amount: params.amount,
-          senderAddress: account.address,
-        },
-        shieldRange,
+      const descriptor = binaryDescriptor(market, params.direction === 'UP' ? 'up' : 'down')
+      const quote = await quoteSpend(predict, account.address, descriptor, params.spendUsdc)
+      const minQuantity = roundUsdc(quote.quantity * 0.9)
+      const { digest, result } = await execute(
+        await predict.tx.mintCost(account.address, descriptor, {
+          spend: params.spendUsdc,
+          minQuantity,
+        }),
       )
 
-      const result = await signAndExecuteTransaction({ transaction: tx })
-      if (result.$kind === 'FailedTransaction') {
-        setError('Pick transaction failed on-chain')
-        return null
+      let orderId = ''
+      try {
+        orderId = predict.decode.mint(asDecodable(result)).orderId.toString()
+      } catch {
+        const open = await predict.read.positions(account.address)
+        const match = open.find((p) => p.marketId === market.id)
+        orderId = match?.orderId.toString() ?? digest
       }
 
-      const digest = result.Transaction.digest
-      await client.waitForTransaction({ digest })
-      await queryClient.invalidateQueries({ queryKey: ['dusdc-balance', account.address] })
-      return digest
+      if (params.withShield && market.referencePrice !== null) {
+        try {
+          const range = rangeDescriptor(market, SHIELD_HALF_WIDTH_USD)
+          const shieldQuote = await quoteSpend(predict, account.address, range, shieldUsd)
+          await execute(
+            await predict.tx.mintCost(account.address, range, {
+              spend: shieldUsd,
+              minQuantity: roundUsdc(shieldQuote.quantity * 0.9),
+            }),
+          )
+        } catch {
+          // Directional pick still stands if the shield mint is rejected.
+        }
+      }
+
+      return {
+        digest,
+        orderId,
+        marketId: market.id,
+        expiryMs: Number(market.expiryMs),
+        strikeUsd: market.referencePrice ?? 0,
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Transaction failed')
       return null
@@ -94,42 +141,35 @@ export function usePredict() {
     }
   }
 
-  async function redeemPosition(params: {
-    oracleObjectId: string
-    direction: 'UP' | 'DOWN'
-    expiry: number
-    strike: number
-    amount: bigint
-  }): Promise<boolean> {
-    if (!account) return false
+  async function claimPick(pick: StreakPick): Promise<{ payout: number } | null> {
+    if (!account || !pick.orderId || !pick.marketId) return null
     setIsPending(true)
     setError(null)
     try {
-      const managerObjectId = await getManagerObjectId()
-      if (!managerObjectId) return false
-
-      const tx = buildRedeemTx({
-        managerObjectId,
-        oracleObjectId: params.oracleObjectId,
-        direction: params.direction,
-        expiry: params.expiry,
-        strike: params.strike,
-        amount: params.amount,
-        senderAddress: account.address,
-      })
-
-      const result = await signAndExecuteTransaction({ transaction: tx })
-      if (result.$kind === 'FailedTransaction') return false
-
-      await client.waitForTransaction({ digest: result.Transaction.digest })
-      await queryClient.invalidateQueries({ queryKey: ['dusdc-balance', account.address] })
-      return true
-    } catch {
-      return false
+      const predict = createPredict(client)
+      const { result } = await execute(
+        await predict.tx.claimSettled(
+          account.address,
+          {
+            underlying: UNDERLYING,
+            expiryMs: pick.expiryTimestamp,
+            marketId: pick.marketId,
+          },
+          { orderId: BigInt(pick.orderId) },
+        ),
+      )
+      try {
+        return { payout: predict.decode.claim(asDecodable(result)).payout }
+      } catch {
+        return { payout: 0 }
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Claim failed')
+      return null
     } finally {
       setIsPending(false)
     }
   }
 
-  return { submitPick, redeemPosition, ensureManager, isPending, error }
+  return { submitPick, claimPick, isPending, error }
 }

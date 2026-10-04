@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCurrentAccount } from '@mysten/dapp-kit-react'
 import { useBTCPrice } from '../hooks/useBTCPrice'
-import { usedUSDCBalance } from '../hooks/usedUSDCBalance'
+import { useDUSDCBalance } from '../hooks/usedUSDCBalance'
 import { useStreak } from '../hooks/useStreak'
 import { usePredict } from '../hooks/usePredict'
 import { useStreakShield } from '../hooks/useStreakShield'
@@ -17,7 +17,7 @@ export function Pick() {
   const navigate = useNavigate()
   const account = useCurrentAccount()
   const { data: oracle } = useBTCPrice()
-  const { data: balance } = usedUSDCBalance()
+  const { data: balance } = useDUSDCBalance()
   const { hasPickedToday, addPick } = useStreak()
   const { submitPick, isPending, error } = usePredict()
   const shield = useStreakShield(account?.address)
@@ -31,38 +31,32 @@ export function Pick() {
   const totalCost = parseFloat(amountInput) + shieldCostDUSDC
 
   async function handleConfirm() {
-    if (!account || !oracle || !direction || !balance?.coins.length) return
+    if (!account || !oracle || !direction) return
 
     const amount = parseFloat(amountInput)
-    if (isNaN(amount) || amount <= 0 || totalCost > maxAmount) return
+    if (isNaN(amount) || amount < 1 || totalCost > maxAmount) return
 
-    const amountMist = BigInt(Math.round(amount * 10 ** DUSDC_DECIMALS))
-    const bestCoin = balance.coins.sort(
-      (a: { balance: string }, b: { balance: string }) =>
-        Number(BigInt(b.balance) - BigInt(a.balance)),
-    )[0]
-
-    const digest = await submitPick({
+    const submitted = await submitPick({
       direction,
-      oracle,
-      dusdcCoinObjectId: bestCoin.objectId,
-      amount: amountMist,
+      spendUsdc: amount,
       withShield: shield.active,
     })
 
-    if (digest) {
+    if (submitted) {
       if (shield.active) shield.consume()
 
       addPick({
-        id: digest,
+        id: submitted.digest,
         date: format(new Date(), 'yyyy-MM-dd'),
         direction,
         amount,
-        amountRaw: amountMist.toString(),
-        positionId: digest,
-        oracleId: oracle.oracleId,
-        strike: oracle.atmStrike,
-        expiryTimestamp: oracle.expiryTimestamp,
+        amountRaw: Math.round(amount * 10 ** DUSDC_DECIMALS).toString(),
+        positionId: submitted.orderId || submitted.digest,
+        orderId: submitted.orderId,
+        marketId: submitted.marketId,
+        oracleId: submitted.marketId,
+        strike: submitted.strikeUsd || oracle.atmStrike,
+        expiryTimestamp: submitted.expiryMs,
         shielded: shield.active,
       })
       navigate('/app')
@@ -164,12 +158,12 @@ export function Pick() {
           </div>
           {parseFloat(amountInput) > 0 && (
             <div className="mt-3 pt-3 border-t border-white/5 flex items-center justify-between">
-              <p className="text-xs text-gray-500">Est. return if correct</p>
+              <p className="text-xs text-gray-500">All-in budget</p>
               <div className="text-right">
                 <p className="text-sm font-bold text-white">
-                  {(parseFloat(amountInput) * 2).toFixed(2)} dUSDC
+                  {parseFloat(amountInput).toFixed(2)} dUSDC
                 </p>
-                <p className="text-xs text-gray-600">~2× at ATM · varies with vol</p>
+                <p className="text-xs text-gray-600">premium + fees · sized on-chain</p>
               </div>
             </div>
           )}

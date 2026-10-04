@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useSyncExternalStore } from 'react'
 import { useCurrentAccount } from '@mysten/dapp-kit-react'
 import { format } from 'date-fns'
 
@@ -11,6 +11,8 @@ export type Pick = {
   amount: number
   amountRaw: string
   positionId: string
+  orderId?: string
+  marketId?: string
   oracleId: string
   strike: number
   expiryTimestamp: number
@@ -19,24 +21,44 @@ export type Pick = {
   shielded?: boolean
 }
 
+const EVENT = 'streaksui-picks'
+
 function storageKey(address: string) {
   return `streaksui_picks_${address}`
 }
 
+let snapshot: { key: string; picks: Pick[] } | null = null
+
 function loadPicks(address: string): Pick[] {
   try {
-    const raw = localStorage.getItem(storageKey(address))
-    return raw ? JSON.parse(raw) : []
+    const raw = localStorage.getItem(storageKey(address)) ?? '[]'
+    const key = `${address}:${raw}`
+    if (snapshot?.key === key) return snapshot.picks
+    const picks = JSON.parse(raw) as Pick[]
+    snapshot = { key, picks }
+    return picks
   } catch {
-    return []
+    snapshot = { key: address, picks: [] }
+    return snapshot.picks
   }
 }
 
 function savePicks(address: string, picks: Pick[]) {
-  localStorage.setItem(storageKey(address), JSON.stringify(picks))
+  const raw = JSON.stringify(picks)
+  localStorage.setItem(storageKey(address), raw)
+  snapshot = { key: `${address}:${raw}`, picks }
+  window.dispatchEvent(new Event(EVENT))
 }
 
-// shielded_loss is neutral — it does not extend or break the streak
+function subscribe(onStoreChange: () => void) {
+  window.addEventListener(EVENT, onStoreChange)
+  window.addEventListener('storage', onStoreChange)
+  return () => {
+    window.removeEventListener(EVENT, onStoreChange)
+    window.removeEventListener('storage', onStoreChange)
+  }
+}
+
 function computeStreak(picks: Pick[]): number {
   const settled = picks
     .filter((p) => p.status !== 'pending')
@@ -75,7 +97,11 @@ export function useStreak() {
   const account = useCurrentAccount()
   const address = account?.address ?? ''
 
-  const picks = address ? loadPicks(address) : []
+  const picks = useSyncExternalStore(
+    subscribe,
+    () => (address ? loadPicks(address) : []),
+    () => [],
+  )
   const streak = computeStreak(picks)
   const bestStreak = computeBestStreak(picks)
   const today = format(new Date(), 'yyyy-MM-dd')
@@ -85,9 +111,7 @@ export function useStreak() {
   const addPick = useCallback(
     (pick: Omit<Pick, 'status' | 'pnl'>) => {
       if (!address) return
-      const existing = loadPicks(address)
-      const updated = [...existing, { ...pick, status: 'pending' as PickStatus, pnl: 0 }]
-      savePicks(address, updated)
+      savePicks(address, [...loadPicks(address), { ...pick, status: 'pending', pnl: 0 }])
     },
     [address],
   )
@@ -95,18 +119,26 @@ export function useStreak() {
   const resolvePick = useCallback(
     (positionId: string, won: boolean, pnl: number) => {
       if (!address) return
-      const existing = loadPicks(address)
-      const updated = existing.map((p) => {
-        if (p.positionId !== positionId) return p
-        const newStatus: PickStatus = won ? 'won' : p.shielded ? 'shielded_loss' : 'lost'
-        return { ...p, status: newStatus, pnl }
-      })
-      savePicks(address, updated)
+      savePicks(
+        address,
+        loadPicks(address).map((p) => {
+          if (p.positionId !== positionId) return p
+          const newStatus: PickStatus = won ? 'won' : p.shielded ? 'shielded_loss' : 'lost'
+          return { ...p, status: newStatus, pnl }
+        }),
+      )
     },
     [address],
   )
 
-  const hasPickedToday = !!todayPick
-
-  return { picks, streak, bestStreak, todayPick, pendingPicks, hasPickedToday, addPick, resolvePick }
+  return {
+    picks,
+    streak,
+    bestStreak,
+    todayPick,
+    pendingPicks,
+    hasPickedToday: !!todayPick,
+    addPick,
+    resolvePick,
+  }
 }

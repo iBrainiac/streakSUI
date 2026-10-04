@@ -1,28 +1,32 @@
 import { useQuery } from '@tanstack/react-query'
-import { fetchActivePlayers } from '../lib/indexer'
-import type { ActivePlayer } from '../lib/indexer'
+import { useCurrentClient } from '@mysten/dapp-kit-react'
+import { createPredict, tradeableMarkets } from '../lib/predict'
+import type { ActiveMarket } from '@mysten/deepbook-v3/predict'
 
-export type LeaderboardRow = ActivePlayer & {
+export type LeaderboardRow = {
+  marketId: string
+  expiryMs: number
+  referencePrice: number | null
+  mintPaused: boolean
   rank: number
-  isCurrentUser: boolean
-  streak?: number
 }
 
-export function useLeaderboard(currentAddress?: string, currentStreak?: number) {
+export function useLeaderboard() {
+  const client = useCurrentClient()
+
   return useQuery({
-    queryKey: ['leaderboard'],
+    queryKey: ['live-markets'],
     queryFn: async (): Promise<LeaderboardRow[]> => {
-      const players = await fetchActivePlayers(50)
-      return players
-        .sort((a, b) => b.joinedAt - a.joinedAt)
-        .map((p, i) => ({
-          ...p,
-          rank: i + 1,
-          isCurrentUser: p.address === currentAddress,
-          streak: p.address === currentAddress ? currentStreak : undefined,
-        }))
+      const markets: ActiveMarket[] = await createPredict(client).read.markets()
+      return tradeableMarkets(markets).map((m, i) => ({
+        marketId: m.id,
+        expiryMs: Number(m.expiryMs),
+        referencePrice: m.referencePrice,
+        mintPaused: m.mintPaused,
+        rank: i + 1,
+      }))
     },
-    staleTime: 60_000,
-    refetchInterval: 120_000,
+    staleTime: 15_000,
+    refetchInterval: 30_000,
   })
 }

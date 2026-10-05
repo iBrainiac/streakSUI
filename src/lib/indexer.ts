@@ -1,9 +1,12 @@
+import type { ClientWithCoreApi } from '@mysten/sui/client'
 import {
   BTC_SPOT_STORE,
   GRAPHQL_URL,
   POOL_VAULT_ID,
   PRICE_SCALE,
+  UNDERLYING,
 } from './config'
+import { createPredict, nearestTradeableMarket, tradeableMarkets } from './predict'
 
 export type OracleData = {
   oracleId: string
@@ -93,7 +96,45 @@ async function fetchSpotUsdFallback(): Promise<number> {
   return price
 }
 
-export async function fetchLiveOracle(): Promise<OracleData> {
+async function fetchFromPredict(client: ClientWithCoreApi): Promise<OracleData> {
+  const predict = createPredict(client)
+  const markets = await predict.read.markets()
+  const open = tradeableMarkets(markets)
+  const market = nearestTradeableMarket(markets)
+  if (!market) throw new Error('No open BTC market')
+
+  let priceUsd = market.referencePrice ?? 0
+  try {
+    const pricer = await predict.read.pricer({
+      underlying: UNDERLYING,
+      expiryMs: market.expiryMs,
+    })
+    if (pricer.forward > 0) priceUsd = pricer.forward
+  } catch {
+    // Reference tick is enough to render if the live pricer is briefly stale.
+  }
+  if (!(priceUsd > 0)) throw new Error('Predict oracle has no spot yet')
+
+  return {
+    oracleId: market.id,
+    btcPrice: priceUsd,
+    expiryTimestamp: Number(market.expiryMs),
+    atmStrike: Math.round(priceUsd),
+    openMarketCount: open.length,
+  }
+}
+
+export async function fetchLiveOracle(
+  client?: ClientWithCoreApi,
+): Promise<OracleData> {
+  if (client) {
+    try {
+      return await fetchFromPredict(client)
+    } catch {
+      // Fall through to GraphQL / Coinbase so the UI still shows a price.
+    }
+  }
+
   let priceUsd: number
   try {
     priceUsd = latestSpotUsd(await readMoveObjectJson(BTC_SPOT_STORE))
